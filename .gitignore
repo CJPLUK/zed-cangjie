@@ -1,0 +1,7 @@
+# generic
+.DS_Store
+
+# project build artifacts
+target
+extension.wasm
+grammars

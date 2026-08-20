@@ -1,0 +1,26 @@
+id = "cangjie"
+name = "Cangjie"
+version = "0.0.1"
+schema_version = 1
+description = "Cangjie language support"
+
+authors = ["Luke Naylor <luke.naylor@h-partners.com>"]
+themes = []
+icon_themes = []
+languages = ["Cangjie"]
+capabilities = []
+file_types =["cj"]
+
+[lib]
+kind = "Rust"
+
+ [grammars.cangjie]
+ repository = "https://gitcode.com/Cangjie-SIG/tree-sitter-cangjie"
+ rev = "2fac636da4191550463a456396cb2680121acf6b"
+
+[language_servers.cangjie-lsp]
+name = "Cangjie Language Server"
+languages = ["Cangjie"]
+
+[language_servers.cangjie-lsp.language_ids]
+"Cangjie" = "cangjie"
