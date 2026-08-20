@@ -16,7 +16,7 @@ kind = "Rust"
 
  [grammars.cangjie]
  repository = "https://gitcode.com/Cangjie-SIG/tree-sitter-cangjie"
- rev = "2fac636da4191550463a456396cb2680121acf6b"
+ rev = "b145ccdc9b64082bf9a558ab54e7b536d7a57d73"
 
 [language_servers.cangjie-lsp]
 name = "Cangjie Language Server"
