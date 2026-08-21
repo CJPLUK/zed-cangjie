@@ -182,10 +182,20 @@
         (variableName
             (varBindingPattern) @attribute)))
 
-; plain function call
+; plain function call (possibly generic)
 (postfixExpression
     (atomicVariable
-        . (identifier) .) @function
+        .
+        (identifier) @function
+        .)
+    (callSuffix))
+(postfixExpression
+    (atomicVariable
+        .
+        (identifier) @function
+        .
+        (typeArguments)
+        .)
     (callSuffix))
 ; method call
 (postfixExpression
