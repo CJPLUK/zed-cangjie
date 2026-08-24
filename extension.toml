@@ -23,4 +23,4 @@ name = "Cangjie Language Server"
 languages = ["Cangjie"]
 
 [language_servers.cangjie-lsp.language_ids]
-"Cangjie" = "cangjie"
+"Cangjie" = "Cangjie"
