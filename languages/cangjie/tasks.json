@@ -1,0 +1,8 @@
+[
+  {
+    "label": "cjpm test",
+    "command": "cjpm test --filter='$ZED_CUSTOM_testname'",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["cjpm-test"]
+  }
+]
