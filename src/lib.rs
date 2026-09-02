@@ -1,12 +1,92 @@
+use std::collections::HashMap;
+
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use url::Url;
 use zed_extension_api::{self as zed, serde_json, Extension, LanguageServerId, Worktree};
 
-struct CangjieExtension {}
+#[derive(Deserialize)]
+struct CjpmFile {
+    package: Package,
+}
+
+#[derive(Deserialize)]
+struct Package {
+    name: String,
+    #[serde(default = "default_src_path", rename = "src-dir")]
+    src_path: String,
+}
+
+fn default_src_path() -> String {
+    "src".to_string()
+}
+
+struct CJPMProject {
+    cjpm_dir: String,
+    src_dir: String,
+    cjpm_data: CjpmFile,
+}
+
+impl CJPMProject {
+    fn parse(worktree: &Worktree, cjpm_rel_path: &str) -> zed::Result<Self> {
+        let worktree_path = worktree.root_path();
+        let cjpm_dir: String = worktree_path.clone() + "/" + cjpm_rel_path;
+        let cjpm_contents = worktree.read_text_file(&(cjpm_rel_path.to_string() + "cjpm.toml"))?;
+        let cjpm_data: CjpmFile = toml::from_str(&cjpm_contents)
+            .map_err(|error| format!("failed to parse {cjpm_rel_path}cjpm.toml: {error}"))?;
+        let src_dir: String = worktree_path + "/" + &cjpm_data.package.src_path;
+
+        Ok(CJPMProject {
+            cjpm_dir,
+            src_dir,
+            cjpm_data,
+        })
+    }
+}
+
+struct CangjieExtension {
+    cjpm_projects_catalog: HashMap<u64, Vec<CJPMProject>>,
+}
+
+impl CangjieExtension {
+    fn worktree_projects(&mut self, worktree: &Worktree) -> &Vec<CJPMProject> {
+        let out = self
+            .cjpm_projects_catalog
+            .entry(worktree.id())
+            .or_insert_with(|| {
+                ["./"] // to fill with others found with `find . -name cjpm.toml`
+                    .iter()
+                    .filter_map(|rel_path| CJPMProject::parse(worktree, rel_path).ok())
+                    .collect()
+            });
+        if out.len() != 1 {
+            println!("CANGJIE EXTENSION, CJPM.TOML FILE NOT FOUND CORRECTLY")
+        }
+        out
+    }
+}
+
+fn module_option(cjpm_proj: &CJPMProject) -> zed::Result<(String, ModuleConfig)> {
+    let file_uri = Url::from_file_path(cjpm_proj.cjpm_dir.clone() + "/cjpm.toml")
+        .map_err(|_| "cjpm.toml not found".to_string())?
+        .to_string();
+    let src_path = Url::from_file_path(&cjpm_proj.src_dir)
+        .map_err(|_| "error with src directory".to_string())?
+        .to_string();
+
+    Ok((
+        file_uri,
+        ModuleConfig {
+            name: cjpm_proj.cjpm_data.package.name.clone(),
+            src_path,
+        },
+    ))
+}
 
 impl Extension for CangjieExtension {
     fn new() -> Self {
-        Self {}
+        Self {
+            cjpm_projects_catalog: Default::default(),
+        }
     }
 
     fn language_server_command(
@@ -33,7 +113,12 @@ impl Extension for CangjieExtension {
         worktree: &Worktree,
     ) -> zed_extension_api::Result<Option<serde_json::Value>> {
         let modules_home_option: String = get_cangjie_home(worktree)?;
-        let multi_module_option: Vec<_> = vec![module_option(worktree, "")?];
+        let multi_module_option: Vec<_> = self
+            .worktree_projects(worktree)
+            .iter()
+            .filter_map(|cjpm_proj| module_option(cjpm_proj).ok())
+            .collect();
+
         Ok(Some(
             serde_json::to_value(InitializationOptions {
                 modules_home_option,
@@ -169,46 +254,6 @@ impl Extension for CangjieExtension {
 
         Err("cjpm task not recognised".into())
     }
-}
-
-fn module_option(worktree: &Worktree, cjpm_rel_path: &str) -> zed::Result<(String, ModuleConfig)> {
-    let worktree_path = worktree.root_path();
-    let file_uri = Url::from_file_path(worktree_path.clone() + "/" + cjpm_rel_path + "/cjpm.toml")
-        .map_err(|_| "cjpm.toml not found".to_string())?
-        .to_string();
-    let cjpm_contents =
-        //worktree.read_text_file(&("./".to_string() + cjpm_rel_path + "/cjpm.toml"))?;
-        worktree.read_text_file("cjpm.toml")?;
-    #[derive(Deserialize)]
-    struct CjpmFile {
-        package: Package,
-    }
-
-    #[derive(Deserialize)]
-    struct Package {
-        name: String,
-        #[serde(default = "default_src_path", rename = "src-dir")]
-        src_path: String,
-    }
-
-    let cjpm_file: CjpmFile = toml::from_str(&cjpm_contents)
-        .map_err(|error| format!("failed to parse {cjpm_rel_path}: {error}"))?;
-
-    Ok((
-        file_uri,
-        ModuleConfig {
-            name: cjpm_file.package.name,
-            src_path: Url::from_file_path(
-                worktree_path + cjpm_rel_path + &cjpm_file.package.src_path,
-            )
-            .map_err(|_| "error with src directory")?
-            .to_string(),
-        },
-    ))
-}
-
-fn default_src_path() -> String {
-    "src".to_string()
 }
 
 fn get_cangjie_home(worktree: &Worktree) -> zed::Result<String> {
