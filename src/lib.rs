@@ -42,6 +42,133 @@ impl Extension for CangjieExtension {
             .unwrap_or_default(),
         ))
     }
+
+    fn dap_locator_create_scenario(
+        &mut self,
+        locator_name: String,
+        build_task: zed_extension_api::TaskTemplate,
+        resolved_label: String,
+        debug_adapter_name: String,
+    ) -> Option<zed_extension_api::DebugScenario> {
+        if build_task.command != "cjpm" {
+            return None;
+        }
+
+        if build_task.args == vec!["run"] {
+            return Some(zed::DebugScenario {
+                adapter: debug_adapter_name,
+                label: resolved_label.clone(),
+                config: "{}".into(),
+                tcp_connection: None,
+                build: Some(zed::BuildTaskDefinition::Template(
+                    zed::BuildTaskDefinitionTemplatePayload {
+                        template: zed::BuildTaskTemplate {
+                            label: "cjpm build".into(),
+                            command: "cjpm".into(),
+                            args: vec!["build".into(), "-g".into()],
+                            env: build_task.env,
+                            cwd: build_task.cwd,
+                        },
+                        locator_name: Some(locator_name),
+                    },
+                )),
+            });
+        }
+
+        if build_task.args[0] == "test" {
+            let config = serde_json::Value::Null;
+            let Ok(config) = serde_json::to_string(&config) else {
+                return None;
+            };
+            return Some(zed::DebugScenario {
+                adapter: debug_adapter_name,
+                label: resolved_label.clone(),
+                config,
+                tcp_connection: None,
+                build: Some(zed::BuildTaskDefinition::Template(
+                    zed::BuildTaskDefinitionTemplatePayload {
+                        template: zed::BuildTaskTemplate {
+                            label: "cjpm test --no-run -g".into(),
+                            command: "cjpm".into(),
+                            args: build_task
+                                .args
+                                .into_iter()
+                                .chain(["--no-run".to_string(), "-g".to_string()].into_iter())
+                                .collect(),
+                            env: build_task.env,
+                            cwd: build_task.cwd,
+                        },
+                        locator_name: Some(locator_name),
+                    },
+                )),
+            });
+        }
+
+        None
+    }
+
+    fn run_dap_locator(
+        &mut self,
+        _locator_name: String,
+        build_task: zed_extension_api::TaskTemplate,
+    ) -> zed_extension_api::Result<zed_extension_api::DebugRequest, String> {
+        if build_task.command != "cjpm" {
+            return Err("Only supports cjpm tasks".into());
+        }
+
+        if build_task.args == vec!["build", "-g"] {
+            return Ok(zed::DebugRequest::Launch(zed::LaunchRequest {
+                program: "target/debug/bin/main".into(),
+                cwd: build_task.cwd,
+                args: vec![],
+                envs: build_task.env.into_iter().collect(),
+            }));
+        }
+
+        if build_task.args[0] == "test" {
+            if !build_task.args.iter().any(|arg| arg == "-g") {
+                return Err("cjpm test tasks only supported with '-g' flag".into());
+            }
+            let target_dir = build_task
+                .args
+                .iter()
+                .filter_map(|arg| {
+                    if arg.starts_with("--target-dir=") && arg.len() > 13 {
+                        Some(&arg[13..])
+                    } else {
+                        None
+                    }
+                })
+                .last()
+                .unwrap_or("target");
+            return Ok(zed::DebugRequest::Launch(zed::LaunchRequest {
+                program: format!("{target_dir}/debug/unittest_bin/$ZED_CUSTOM_pkgname"),
+                cwd: build_task.cwd,
+                // only use argument which we know that `cjpm test` passes onto the executable (best effort):
+                args: build_task
+                    .args
+                    .into_iter()
+                    .filter(|arg| {
+                        arg.starts_with("--filter=")
+                            || arg.starts_with("--include-tags=")
+                            || arg.starts_with("--exclude-tags=")
+                            || arg.starts_with("--random-seed=")
+                            || arg == "--capture-output"
+                            || arg == "--no-capture-output"
+                            || arg == "--show-tags"
+                            || arg == "--no-color"
+                            || arg == "--no-progress"
+                            || arg == "--progress-brief"
+                            || arg == "--progress-entries-limit"
+                            || arg == "--verbose"
+                    })
+                    .collect(),
+                envs: build_task.env,
+            }));
+        }
+
+        Err("cjpm task not recognised".into())
+    }
 }
 
 fn module_option(worktree: &Worktree, cjpm_rel_path: &str) -> zed::Result<(String, ModuleConfig)> {

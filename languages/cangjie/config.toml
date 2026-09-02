@@ -4,3 +4,5 @@ path_suffixes = ["cj"]
 line_comments = ["// "]
 tab_size = 4
 hard_tabs = false
+
+debuggers = ["CodeLLDB", "GDB"]

@@ -1,0 +1,9 @@
+[
+  {
+    "label": "cjpm run",
+    "command": "cjpm",
+    "args": ["run"],
+    "cwd": "$ZED_DIRNAME",
+    "tags": ["cjpm-run"]
+  }
+]

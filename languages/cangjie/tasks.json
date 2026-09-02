@@ -1,8 +1,16 @@
 [
   {
     "label": "cjpm test",
-    "command": "cjpm test --filter='$ZED_CUSTOM_testname'",
+    "command": "cjpm",
+    "args": ["test", "--filter=$ZED_CUSTOM_testname", "$ZED_DIRNAME"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "tags": ["cjpm-test"]
+  },
+  {
+    "label": "cjpm run",
+    "command": "cjpm",
+    "args": ["run"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["cjpm-run"]
   }
 ]

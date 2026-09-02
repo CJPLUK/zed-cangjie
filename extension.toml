@@ -7,9 +7,9 @@ description = "Cangjie language support"
 authors = ["Luke Naylor <luke.naylor@h-partners.com>"]
 themes = []
 icon_themes = []
-languages = ["Cangjie"]
+languages = ["Cangjie", "CJPM"]
 capabilities = []
-file_types =["cj"]
+file_types =["cj", "cjpm.toml"]
 
 [lib]
 kind = "Rust"
@@ -21,6 +21,9 @@ kind = "Rust"
 [language_servers.cangjie-lsp]
 name = "Cangjie Language Server"
 languages = ["Cangjie"]
+# enableSemanticHighlighting = true
 
 [language_servers.cangjie-lsp.language_ids]
 "Cangjie" = "Cangjie"
+
+[debug_locators.cangjie-debug-locator]
