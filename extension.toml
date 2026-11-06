@@ -8,15 +8,14 @@ authors = ["Luke Naylor <luke.naylor@h-partners.com>"]
 themes = []
 icon_themes = []
 languages = ["Cangjie", "CJPM"]
-capabilities = []
 file_types =["cj", "cjpm.toml"]
 
 [lib]
 kind = "Rust"
 
- [grammars.cangjie]
- repository = "https://gitcode.com/Cangjie-SIG/tree-sitter-cangjie"
- rev = "b145ccdc9b64082bf9a558ab54e7b536d7a57d73"
+[grammars.cangjie]
+repository = "https://gitcode.com/Cangjie-SIG/tree-sitter-cangjie"
+rev = "b145ccdc9b64082bf9a558ab54e7b536d7a57d73"
 
 [language_servers.cangjie-lsp]
 name = "Cangjie Language Server"
@@ -27,3 +26,9 @@ languages = ["Cangjie"]
 "Cangjie" = "Cangjie"
 
 [debug_locators.cangjie-debug-locator]
+
+[[capabilities]]
+kind = "process:exec"
+command = "find"
+args = ["*", "-name", "cjpm.toml"]
+

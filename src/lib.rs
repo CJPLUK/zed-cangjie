@@ -4,6 +4,12 @@ use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use url::Url;
 use zed_extension_api::{self as zed, serde_json, Extension, LanguageServerId, Worktree};
 
+const ZED_CANGJIE_OUTPUT_PREFIX: &'static str = "Cangjie PL extension message:";
+
+fn log(message: &str) {
+    println!("{ZED_CANGJIE_OUTPUT_PREFIX} {message}")
+}
+
 #[derive(Deserialize)]
 struct CjpmFile {
     package: Package,
@@ -27,13 +33,16 @@ struct CJPMProject {
 }
 
 impl CJPMProject {
+    /// `cjpm_rel_path` is the relative path to the subdirectory of the workspace
+    /// which contains a `cjpm.toml` file.
+    /// Starts with `./` and ends with `/`
     fn parse(worktree: &Worktree, cjpm_rel_path: &str) -> zed::Result<Self> {
         let worktree_path = worktree.root_path();
-        let cjpm_dir: String = worktree_path.clone() + "/" + cjpm_rel_path;
+        let cjpm_dir: String = worktree_path.clone() + cjpm_rel_path;
         let cjpm_contents = worktree.read_text_file(&(cjpm_rel_path.to_string() + "cjpm.toml"))?;
         let cjpm_data: CjpmFile = toml::from_str(&cjpm_contents)
             .map_err(|error| format!("failed to parse {cjpm_rel_path}cjpm.toml: {error}"))?;
-        let src_dir: String = worktree_path + "/" + &cjpm_data.package.src_path;
+        let src_dir: String = worktree_path + "/" + cjpm_rel_path + &cjpm_data.package.src_path;
 
         Ok(CJPMProject {
             cjpm_dir,
@@ -49,18 +58,52 @@ struct CangjieExtension {
 
 impl CangjieExtension {
     fn worktree_projects(&mut self, worktree: &Worktree) -> &Vec<CJPMProject> {
+        // absolute path to root of workspace, with trailing `/`
+        let root_path = worktree.root_path();
+        // relative paths (from workspace root) of directories in workspace
+        // containing a `cjpm.toml` file (starting with `./` and ends with `/`)
+        let rel_paths = zed::Command::new("find")
+            .args([&root_path, "-name", "cjpm.toml"])
+            .output()
+            .map_err(|err| {
+                log(&format!("could not execute `find` -- {err}"));
+                err
+            })
+            // Reaching following requires appropriate capability declaration
+            // in extension manifest and explicit approval in user settings.
+            .and_then(|output| {
+                String::from_utf8(output.stdout).map_err(|_| {
+                    log("error decoding `find` output to string");
+                    "utf8 decoding error of `find` command output".to_string()
+                })
+            })
+            .map(|str| {
+                str.split("\n")
+                    .filter_map(|line| {
+                        Some(format!(
+                            ".{}",
+                            line.strip_prefix(&root_path)?.strip_suffix("cjpm.toml")?,
+                        ))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            // Without approved capability, fall back to assuming that the workspace
+            // is at the root of a Cangjie/CJPM project
+            .unwrap_or(vec!["./".to_string()]);
+        for p in &rel_paths {
+            log(&format!("cjpm.toml found relative to workspace at: {p}"));
+        }
+
         let out = self
             .cjpm_projects_catalog
             .entry(worktree.id())
-            .or_insert_with(|| {
-                ["./"] // to fill with others found with `find . -name cjpm.toml`
+            .insert_entry(
+                rel_paths
                     .iter()
                     .filter_map(|rel_path| CJPMProject::parse(worktree, rel_path).ok())
-                    .collect()
-            });
-        if out.len() != 1 {
-            println!("CANGJIE EXTENSION, CJPM.TOML FILE NOT FOUND CORRECTLY")
-        }
+                    .collect(),
+            )
+            .into_mut();
         out
     }
 }
