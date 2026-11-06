@@ -6,6 +6,14 @@ use zed_extension_api::{self as zed, serde_json, Extension, LanguageServerId, Wo
 
 const ZED_CANGJIE_OUTPUT_PREFIX: &'static str = "Cangjie PL extension message:";
 
+/// Install locations of Python 3.11 from the python.org installer, Homebrew on Apple Silicon,
+/// and Homebrew on Intel respectively.
+const PYTHON_FRAMEWORK_DIRECTORIES_FALLBACK_MACOS: [&str; 3] = [
+    "/Library/Frameworks",
+    "/opt/homebrew/opt/python@3.11/Frameworks",
+    "/usr/local/opt/python@3.11/Frameworks",
+];
+
 fn log(message: &str) {
     println!("{ZED_CANGJIE_OUTPUT_PREFIX} {message}")
 }
@@ -201,9 +209,12 @@ impl Extension for CangjieExtension {
         let request = self.dap_request_kind(adapter_name, configuration.clone())?;
 
         let mut envs = vec![library_path_env(&cangjie_home, worktree)?];
-        // Zed doesn't forward `dap.<adapter>.env` to extension adapters, and the SDK's liblldb
-        // needs this to locate the Python framework it links against on macOS.
-        if let Some(framework_path) = lsp_settings_env_var(worktree, "DYLD_FRAMEWORK_PATH") {
+        if zed::current_platform().0 == zed::Os::Mac {
+            // The SDK's liblldb links /Library/Frameworks/Python.framework/Versions/3.11/Python,
+            // and Zed doesn't forward `dap.<adapter>.env` to extension adapters. Nonexistent
+            // directories in the fallback are skipped by dyld.
+            let framework_path = lsp_settings_env_var(worktree, "DYLD_FRAMEWORK_PATH")
+                .unwrap_or_else(|| PYTHON_FRAMEWORK_DIRECTORIES_FALLBACK_MACOS.join(":"));
             envs.push(("DYLD_FRAMEWORK_PATH".to_string(), framework_path));
         }
 
