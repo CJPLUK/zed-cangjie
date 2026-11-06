@@ -1,0 +1,189 @@
+{
+  "properties": {
+    "request": {
+      "type": "string",
+      "enum": ["attach", "launch"],
+      "description": "Debug adapter request type"
+    },
+    "program": {
+      "type": "string",
+      "description": "Path to the program to debug or attach to"
+    },
+    "args": {
+      "type": "array",
+      "description": "Program arguments",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Program working directory"
+    },
+    "env": {
+      "type": "array",
+      "description": "Additional environment variables, each in the form \"KEY=VALUE\"",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stopOnEntry": {
+      "type": "boolean",
+      "description": "Automatically stop debuggee after launch",
+      "default": false
+    },
+    "disableASLR": {
+      "type": "boolean",
+      "description": "Disable address space layout randomization of the debuggee",
+      "default": true
+    },
+    "disableSTDIO": {
+      "type": "boolean",
+      "description": "Do not create stdin, stdout and stderr for the debuggee",
+      "default": false
+    },
+    "shellExpandArguments": {
+      "type": "boolean",
+      "description": "Expand program arguments as a shell would",
+      "default": false
+    },
+    "detachOnError": {
+      "type": "boolean",
+      "description": "Detach from the debuggee if an error occurs while launching",
+      "default": false
+    },
+    "runInTerminal": {
+      "type": "boolean",
+      "description": "Launch the program inside an integrated terminal",
+      "default": false
+    },
+    "debuggerRoot": {
+      "type": "string",
+      "description": "Working directory of the debugger, used to resolve relative paths"
+    },
+    "sourcePath": {
+      "type": "string",
+      "description": "Path to the root of the source tree, used to resolve relative source paths"
+    },
+    "sourceMap": {
+      "type": "array",
+      "description": "Source path remappings, each a [build path, local path] pair",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "initCommands": {
+      "type": "array",
+      "description": "LLDB commands executed upon debugger startup",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preRunCommands": {
+      "type": "array",
+      "description": "LLDB commands executed just before the program is launched or attached to",
+      "items": {
+        "type": "string"
+      }
+    },
+    "launchCommands": {
+      "type": "array",
+      "description": "LLDB commands that launch the program, replacing the default launch",
+      "items": {
+        "type": "string"
+      }
+    },
+    "attachCommands": {
+      "type": "array",
+      "description": "LLDB commands that attach to the program, replacing the default attach",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stopCommands": {
+      "type": "array",
+      "description": "LLDB commands executed each time the program stops",
+      "items": {
+        "type": "string"
+      }
+    },
+    "exitCommands": {
+      "type": "array",
+      "description": "LLDB commands executed when the program exits",
+      "items": {
+        "type": "string"
+      }
+    },
+    "terminateCommands": {
+      "type": "array",
+      "description": "LLDB commands executed when the debug session ends",
+      "items": {
+        "type": "string"
+      }
+    },
+    "pid": {
+      "type": "integer",
+      "description": "Process id to attach to"
+    },
+    "waitFor": {
+      "type": "boolean",
+      "description": "Wait for the process to launch before attaching",
+      "default": false
+    },
+    "coreFile": {
+      "type": "string",
+      "description": "Path to a core file to load instead of attaching to a live process"
+    }
+  },
+  "anyOf": [{ "required": ["request"] }, { "required": ["build"] }],
+  "allOf": [
+    {
+      "if": {
+        "required": ["request"],
+        "properties": {
+          "request": {
+            "enum": ["launch"]
+          }
+        }
+      },
+      "then": {
+        "oneOf": [
+          {
+            "required": ["program"]
+          },
+          {
+            "required": ["launchCommands"]
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": ["request"],
+        "properties": {
+          "request": {
+            "enum": ["attach"]
+          }
+        }
+      },
+      "then": {
+        "anyOf": [
+          {
+            "required": ["pid"]
+          },
+          {
+            "required": ["program"]
+          },
+          {
+            "required": ["attachCommands"]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -171,6 +171,116 @@ impl Extension for CangjieExtension {
         ))
     }
 
+    fn get_dap_binary(
+        &mut self,
+        adapter_name: String,
+        config: zed_extension_api::DebugTaskDefinition,
+        user_provided_debug_adapter_path: Option<String>,
+        worktree: &Worktree,
+    ) -> zed_extension_api::Result<zed_extension_api::DebugAdapterBinary, String>
+    {
+        let cangjie_home: String = get_cangjie_home(worktree)?;
+        let command = user_provided_debug_adapter_path
+            .unwrap_or_else(|| format!("{cangjie_home}/third_party/llvm/bin/lldb-vscode"));
+
+        let mut configuration: serde_json::Value = serde_json::from_str(&config.config)
+            .map_err(|error| format!("invalid debug configuration: {error}"))?;
+        let configuration_object = configuration
+            .as_object_mut()
+            .ok_or("debug configuration must be a JSON object")?;
+        configuration_object
+            .entry("cwd")
+            .or_insert(worktree.root_path().into());
+        // lldb-vscode resolves a relative `program` against its own working directory.
+        let cwd = configuration_object
+            .get("cwd")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| worktree.root_path());
+
+        let request = self.dap_request_kind(adapter_name, configuration.clone())?;
+
+        let mut envs = vec![library_path_env(&cangjie_home, worktree)?];
+        // Zed doesn't forward `dap.<adapter>.env` to extension adapters, and the SDK's liblldb
+        // needs this to locate the Python framework it links against on macOS.
+        if let Some(framework_path) = lsp_settings_env_var(worktree, "DYLD_FRAMEWORK_PATH") {
+            envs.push(("DYLD_FRAMEWORK_PATH".to_string(), framework_path));
+        }
+
+        Ok(zed::DebugAdapterBinary {
+            command: Some(command),
+            arguments: vec![],
+            envs,
+            cwd: Some(cwd),
+            connection: None,
+            request_args: zed::StartDebuggingRequestArguments {
+                configuration: configuration.to_string(),
+                request,
+            },
+        })
+    }
+
+    fn dap_request_kind(
+        &mut self,
+        _adapter_name: String,
+        config: serde_json::Value,
+    ) -> zed_extension_api::Result<zed_extension_api::StartDebuggingRequestArgumentsRequest, String>
+    {
+        match config.get("request").and_then(serde_json::Value::as_str) {
+            Some("launch") => Ok(zed::StartDebuggingRequestArgumentsRequest::Launch),
+            Some("attach") => Ok(zed::StartDebuggingRequestArgumentsRequest::Attach),
+            _ => Err(
+                "missing or invalid `request` field in config. Expected 'launch' or 'attach'"
+                    .into(),
+            ),
+        }
+    }
+
+    fn dap_config_to_scenario(
+        &mut self,
+        config: zed_extension_api::DebugConfig,
+    ) -> zed_extension_api::Result<zed_extension_api::DebugScenario, String> {
+        let mut configuration = serde_json::Map::new();
+        match config.request {
+            zed::DebugRequest::Attach(attach) => {
+                configuration.insert("request".into(), "attach".into());
+                if let Some(process_id) = attach.process_id {
+                    configuration.insert("pid".into(), process_id.into());
+                }
+            }
+            zed::DebugRequest::Launch(launch) => {
+                configuration.insert("request".into(), "launch".into());
+                configuration.insert("program".into(), launch.program.into());
+                if !launch.args.is_empty() {
+                    configuration.insert("args".into(), launch.args.into());
+                }
+                // Unlike CodeLLDB, lldb-vscode expects `env` as a list of "KEY=VALUE" strings.
+                if !launch.envs.is_empty() {
+                    let env: Vec<String> = launch
+                        .envs
+                        .into_iter()
+                        .map(|(key, value)| format!("{key}={value}"))
+                        .collect();
+                    configuration.insert("env".into(), env.into());
+                }
+                if let Some(stop_on_entry) = config.stop_on_entry {
+                    configuration.insert("stopOnEntry".into(), stop_on_entry.into());
+                }
+                if let Some(cwd) = launch.cwd {
+                    configuration.insert("cwd".into(), cwd.into());
+                }
+            }
+        }
+
+        Ok(zed::DebugScenario {
+            adapter: config.adapter,
+            label: config.label,
+            config: serde_json::Value::Object(configuration).to_string(),
+            tcp_connection: None,
+            build: None,
+        })
+    }
+
     fn dap_locator_create_scenario(
         &mut self,
         locator_name: String,
@@ -299,12 +409,17 @@ impl Extension for CangjieExtension {
     }
 }
 
-fn get_cangjie_home(worktree: &Worktree) -> zed::Result<String> {
+/// Looks up `name` in the `lsp.cangjie-lsp.binary.env` settings.
+fn lsp_settings_env_var(worktree: &Worktree, name: &str) -> Option<String> {
     zed::settings::LspSettings::for_worktree("cangjie-lsp", worktree)
         .ok()
         .and_then(|lsp_settings| lsp_settings.binary)
         .and_then(|binary_settings| binary_settings.env)
-        .and_then(|env| env.get("CANGJIE_HOME").map(|t| t.to_string()))
+        .and_then(|env| env.get(name).map(|t| t.to_string()))
+}
+
+fn get_cangjie_home(worktree: &Worktree) -> zed::Result<String> {
+    lsp_settings_env_var(worktree, "CANGJIE_HOME")
         .or_else(|| {
             // fallback to shellenv
             worktree
@@ -315,6 +430,37 @@ fn get_cangjie_home(worktree: &Worktree) -> zed::Result<String> {
                 .map(|pair| pair.1.to_owned())
         })
         .ok_or("get_cangjie_home: CANGJIE_HOME must be defined in environment".to_string())
+}
+
+/// Library search path needed by the debuggee to load the Cangjie runtime,
+/// prepended to any value already present in the worktree's shell environment.
+fn library_path_env(cangjie_home: &str, worktree: &Worktree) -> zed::Result<(String, String)> {
+    let (os, architecture) = zed::current_platform();
+    let (variable, os_name) = match os {
+        zed::Os::Mac => ("DYLD_LIBRARY_PATH", "darwin"),
+        zed::Os::Linux => ("LD_LIBRARY_PATH", "linux"),
+        zed::Os::Windows => return Err("debugging Cangjie is not supported on Windows".into()),
+    };
+    let architecture_name = match architecture {
+        zed::Architecture::Aarch64 => "aarch64",
+        zed::Architecture::X8664 => "x86_64",
+        zed::Architecture::X86 => {
+            return Err("debugging Cangjie is not supported on 32-bit x86".into())
+        }
+    };
+
+    let mut library_path = format!(
+        "{cangjie_home}/runtime/lib/{os_name}_{architecture_name}_cjnative:{cangjie_home}/tools/lib"
+    );
+    if let Some((_, existing)) = worktree
+        .shell_env()
+        .into_iter()
+        .find(|(key, value)| key == variable && !value.is_empty())
+    {
+        library_path.push(':');
+        library_path.push_str(&existing);
+    }
+    Ok((variable.to_string(), library_path))
 }
 
 #[derive(Serialize, Deserialize)]

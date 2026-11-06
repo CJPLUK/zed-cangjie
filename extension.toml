@@ -25,6 +25,8 @@ languages = ["Cangjie"]
 [language_servers.cangjie-lsp.language_ids]
 "Cangjie" = "Cangjie"
 
+[debug_adapters.cjdb]
+
 [debug_locators.cangjie-debug-locator]
 
 [[capabilities]]

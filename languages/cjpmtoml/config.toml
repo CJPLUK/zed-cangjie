@@ -11,4 +11,4 @@ brackets = [
     { start = "\"", end = "\"", close = true, newline = false, not_in = ["comment", "string"] },
     { start = "'", end = "'", close = true, newline = false, not_in = ["comment", "string"] },
 ]
-debuggers = ["CodeLLDB", "GDB"]
+debuggers = ["cjdb", "CodeLLDB", "GDB"]
